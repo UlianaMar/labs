@@ -1,281 +1,163 @@
-..
-Лабораторная работа №4
+Я понял, в чем проблема. Скорее всего, при копировании из чата ломается структура из-за того, что весь текст был помещен в один большой блок кода, а внутри него были маленькие блоки ````sql````. 
 
-Тема: Анализ набора данных с помощью SQL
-Предметная область: образовательная платформа
-СУБД: SQLite
-Файл базы: dataset.sqlite
-Шаг 1. Загрузка базы и первичная проверка
+Чтобы все вставилось идеально и ничего не сломалось после 3-го пункта, я убрал внешнюю обертку. Теперь это чистый Markdown-текст. Он строго следует вашему шаблону.
 
-В SandboxSQL загружена SQLite-база. Выполнена проверка числа строк во всех шести таблицах.
+Вам нужно нажать кнопку **"Copy"** (или выделить и скопировать весь текст ниже), открыть ваш файл `report/analysis.md` на GitHub, удалить старый текст и вставить этот. 
 
-Количество записей.
-sql
+***
 
-SELECT 'groups' AS table_name, COUNT(*) AS rows_count FROM groups
-UNION ALL SELECT 'students', COUNT(*) FROM students
-UNION ALL SELECT 'teachers', COUNT(*) FROM teachers
-UNION ALL SELECT 'courses', COUNT(*) FROM courses
-UNION ALL SELECT 'enrollments', COUNT(*) FROM enrollments
-UNION ALL SELECT 'results', COUNT(*) FROM results;
+# Анализ учебного набора данных с помощью SQL
 
-Результат:
+**Вариант:** 2
 
-https://../images/step01_counts.png
+## 1. Описание набора данных
 
-Вывод: все шесть таблиц доступны, всего 2147 записей.
-Шаг 2. Изучение структуры и формулирование аналитических вопросов
+В базе данных 6 таблиц, описывающих образовательный процесс. Основные из них:
 
-База содержит шесть связанных таблиц:
-Таблица	Назначение	Основные поля	Записей
-groups	Учебные группы	id, group_name, study_year	12
-students	Студенты	id, full_name, group_id, admission_year	240
-teachers	Преподаватели	id, full_name, department	15
-courses	Курсы	id, course_name, hours, teacher_id	30
-enrollments	Записи студентов на курсы	id, student_id, course_id, enrolled_at, status	1000
-results	Итоговые оценки завершённых записей	id, enrollment_id, score, completed_at	850
+| Таблица | Назначение | Основные поля | Записей |
+|---|---|---|---:|
+| `students` | Студенты | `id`, `full_name`, `group_id`, `admission_year` | 240 |
+| `courses` | Курсы | `id`, `course_name`, `hours`, `teacher_id` | 30 |
+| `results` | Итоговые оценки | `id`, `enrollment_id`, `score`, `completed_at` | 850 |
+| `groups` | Учебные группы | `id`, `group_name`, `study_year` | 12 |
+| `teachers` | Преподаватели | `id`, `full_name`, `department` | 15 |
+| `enrollments` | Записи на курсы | `id`, `student_id`, `course_id`, `enrolled_at`, `status` | 1000 |
 
-Связи: students.group_id → groups.id; courses.teacher_id → teachers.id; enrollments.student_id → students.id; enrollments.course_id → courses.id; results.enrollment_id → enrollments.id. В каждой таблице id — первичный ключ. Для results.enrollment_id задана уникальность: одной записи на курс соответствует максимум одна оценка.
+**Связи между таблицами:**
+*   `students.group_id` → `groups.id` (каждый студент в группе)
+*   `courses.teacher_id` → `teachers.id` (курс ведет преподаватель)
+*   `enrollments.student_id` → `students.id` и `enrollments.course_id` → `courses.id` (связь многие-ко-многим через таблицу записей)
+*   `results.enrollment_id` → `enrollments.id` (оценка привязана к конкретной записи на курс)
 
-Просмотр данных. Просмотр первых пяти студентов.
-sql
+## 2. Аналитические вопросы
 
-SELECT * FROM students LIMIT 5;
+1. *(Вариант 2)* Какие учебные группы показывают лучшие средние результаты обучения? Сравните группы с учётом числа оценок. (`groups`, `students`, `enrollments`, `results`)
+2. Сколько студентов в каждой группе? (`groups`, `students`)
+3. Какие преподаватели ведут больше всего курсов? (`teachers`, `courses`)
+4. Каково распределение записей на курсы по статусам? (`enrollments`)
+5. Какой средний балл у каждого курса? (`courses`, `enrollments`, `results`)
+6. Есть ли студенты, которые ни разу не записались на курсы? (`students`, `enrollments`)
+7. Как соотносятся длительность курса и средний балл по нему? (`courses`, `results`)
 
-Результат:
+## 3. Фильтрация и сортировка
 
-https://../images/step02_students_data.png
+**Аналитический вопрос:** Вывести курсы длительностью не менее 60 часов, отсортировав по убыванию продолжительности и названию.
 
-Структура таблицы. Просмотр полей и типов данных таблицы students.
-sql
+**SQL-запрос:**
 
-PRAGMA table_info(students);
+```sql
+SELECT id, course_name, hours 
+FROM courses 
+WHERE hours >= 60 
+ORDER BY hours DESC, course_name ASC;
+```
 
-Результат:
+**Результат запроса:**
+![Результат 3.1](../images/step03_courses.png)
 
-https://../images/step02_students_schema.png
+**Пояснение:** Оператор `WHERE` отфильтровал курсы короче 60 часов. `ORDER BY` отсортировал оставшиеся записи сначала по убыванию количества часов, а затем по алфавиту.
 
-Внешние ключи. Просмотр связей таблицы enrollments.
-sql
+## 4. Агрегирование и группировка
 
-PRAGMA foreign_key_list(enrollments);
+**Аналитический вопрос:** Вывести статусы записей на курсы, оставив только те, где записей больше 100.
 
-Результат:
+**SQL-запрос:**
 
-https://../images/step02_enrollments_fk.png
+```sql
+SELECT status, COUNT(*) AS enrollments_count 
+FROM enrollments 
+GROUP BY status 
+HAVING COUNT(*) > 100;
+```
 
-Первичные и внешние ключи. Связи между таблицами
+**Результат запроса:**
+![Результат 4.3](../images/step04_having.png)
 
-В базе данных используются первичные ключи (PRIMARY KEY) для идентификации записей и внешние ключи (FOREIGN KEY) для связи таблиц.
+**Пояснение:** `GROUP BY` сгруппировал данные по статусу. **Разница между WHERE и HAVING:** `WHERE` фильтрует строки до группировки, а `HAVING` фильтрует уже сгруппированные данные (результаты агрегатных функций). Здесь `HAVING` оставил только статус `completed` (850 записей).
 
-    groups.id — первичный ключ учебной группы.
+## 5. Анализ связанных таблиц
 
-    students.id — первичный ключ студента.
+**Аналитический вопрос:** Вывести студентов с их группами, а также всех преподавателей (включая тех, у кого нет курсов).
 
-    teachers.id — первичный ключ преподавателя.
+**SQL-запрос:**
 
-    courses.id — первичный ключ курса.
+```sql
+-- 1. Студенты и группы (INNER JOIN)
+SELECT s.id, s.full_name, g.group_name 
+FROM students AS s 
+INNER JOIN groups AS g ON g.id = s.group_id 
+ORDER BY s.id LIMIT 10;
 
-    enrollments.id — первичный ключ записи на курс.
+-- 2. Все преподаватели и их курсы (LEFT JOIN)
+SELECT t.id, t.full_name AS teacher_name, c.course_name 
+FROM teachers AS t 
+LEFT JOIN courses AS c ON c.teacher_id = t.id 
+ORDER BY t.id;
+```
 
-    results.id — первичный ключ оценки.
+**Результат запроса:**
+![Результат 5.1](../images/step05_students_groups.png)
+![Результат 5.3](../images/step05_teachers_leftjoin.png)
 
-Связи между таблицами:
+**Пояснение:** `INNER JOIN` возвращает только совпадающие строки из обеих таблиц. `LEFT JOIN` (во 2-м запросе) сохраняет всех преподавателей из левой таблицы, даже если у них нет курсов (в нашем случае у всех 15 преподавателей есть курсы, поэтому вывелось 30 строк).
 
-    students.group_id → groups.id — каждый студент относится к конкретной группе.
+## 6. Проверка корректности
 
-    courses.teacher_id → teachers.id — каждый курс закреплён за конкретным преподавателем.
+**Что проверялось:** Наличие невалидных оценок (вне диапазона 0-100) и "осиротевших" результатов (ссылающихся на несуществующие записи).
 
-    enrollments.student_id → students.id — запись на курс сделана конкретным студентом.
+**Способ проверки:**
 
-    enrollments.course_id → courses.id — запись сделана на конкретный курс.
+```sql
+-- 1. Невалидные оценки
+SELECT COUNT(*) AS invalid_scores 
+FROM results 
+WHERE score < 0 OR score > 100 OR score IS NULL;
 
-    results.enrollment_id → enrollments.id — оценка привязана к конкретной записи на курс.
+-- 2. Осиротевшие результаты
+SELECT COUNT(*) AS orphan_results 
+FROM results AS r 
+LEFT JOIN enrollments AS e ON r.enrollment_id = e.id 
+WHERE e.id IS NULL;
+```
 
-Таким образом, таблица enrollments связывает студентов и курсы, а таблица results позволяет получить информацию об успеваемости студентов по конкретным курсам.
+**Результат проверки:**
+![Результат 6.1](../images/step06_invalid.png)
+![Результат 6.2](../images/step06_orphans.png)
 
-Сформулированные аналитические вопросы:
+| Проверка | Ожидаемое значение | Полученное значение | Итог |
+| :--- | :--- | :--- | :--- |
+| Невалидные оценки | 0 | 0 | ✅ |
+| Осиротевшие результаты | 0 | 0 | ✅ |
 
-    (Вариант 2) Какие учебные группы показывают лучшие средние результаты обучения? Сравните группы с учётом числа оценок. (groups, students, enrollments, results)
+## 7. Аналитические выводы
 
-    Какие курсы имеют самую высокую и самую низкую среднюю оценку? (courses, enrollments, results)
+**Основной вопрос варианта:** Какие учебные группы показывают лучшие средние результаты обучения? Сравните группы с учётом числа оценок.
 
-    Сколько студентов записалось на каждый курс и какой процент успешно завершил обучение? (courses, enrollments)
+**SQL-запрос:**
 
-    Какие преподаватели ведут наибольшее количество курсов? (teachers, courses)
+```sql
+SELECT 
+    g.group_name, 
+    COUNT(r.score) AS grades_count, 
+    ROUND(AVG(r.score), 2) AS avg_score
+FROM groups AS g
+INNER JOIN students AS s ON g.id = s.group_id
+INNER JOIN enrollments AS e ON s.id = e.student_id
+INNER JOIN results AS r ON e.id = r.enrollment_id
+WHERE r.score IS NOT NULL
+GROUP BY g.id, g.group_name
+ORDER BY avg_score DESC;
+```
 
-    Как соотносятся длительность курса (hours) и средний балл по нему? (courses, enrollments, results)
+**Результат запроса:**
+![Результат 7.1](../images/step07_groups_avg.png)
+![Результат 7.2](../images/step07_overall_avg.png)
 
-    Есть ли студенты, которые записались на курсы, но не получили ни одной оценки? (students, enrollments, results)
+**Ответ по данным:**
+Лучший средний результат показывает группа **ИВТ-09** со средним баллом **80.09** (учтено 75 оценок). Наихудший результат — у группы **ИВТ-12** со средним баллом **75.26** (учтено 70 оценок). Общий средний балл по всей базе составляет **77.58**.
 
-    Какие группы имеют наибольшее количество отличных оценок (>= 90)? (groups, students, enrollments, results)
+**Вывод 1:** Разница между лучшей и худшей группой составляет 4.83 балла (80.09 против 75.26), что является заметным отклонением. Группа ИВТ-09 демонстрирует стабильно высокий результат, превышающий средний по базе на 2.51 балла.
+**Вывод 2:** Количество оценок в группах варьируется от 61 до 80. Выборка является достаточно равномерной, поэтому высокие позиции ИВТ-09 не являются следствием малого количества оценок или случайности.
+**Вывод 3:** В то время как ИВТ-09 и ИВТ-02 (79.87) находятся выше среднего уровня (77.58), группы ИВТ-08 (75.42) и ИВТ-12 (75.26) значительно отстают, что может требовать дополнительного внимания преподавателей.
 
-Шаг 3. Фильтрация и сортировка
-
-Фильтрация по длительности. Отбираем курсы длительностью не менее 60 часов.
-sql
-
-SELECT id, course_name, hours FROM courses WHERE hours >= 60 ORDER BY hours DESC, course_name ASC;
-
-Результат:
-
-https://../images/step03_courses.png
-
-Сортировка студентов. Выводим студентов, поступивших в 2025 году, по алфавиту.
-sql
-
-SELECT id, full_name, admission_year FROM students WHERE admission_year = 2025 ORDER BY full_name ASC LIMIT 10;
-
-Результат:
-
-https://../images/step03_students.png
-
-Вывод: WHERE отбирает нужные строки, ORDER BY сортирует, LIMIT ограничивает объём вывода.
-Шаг 4. Агрегирование и группировка
-
-Подсчёт записей. Определяем общее число записей на курсы.
-sql
-
-SELECT COUNT(*) AS total_enrollments FROM enrollments;
-
-Результат:
-
-https://../images/step04_count.png
-
-Агрегатные функции. Рассчитываем минимальную, максимальную, среднюю и суммарную продолжительность курсов.
-sql
-
-SELECT MIN(hours) AS min_hours, MAX(hours) AS max_hours, ROUND(AVG(hours), 2) AS avg_hours, SUM(hours) AS total_hours FROM courses;
-
-Результат:
-
-https://../images/step04_aggregates.png
-
-GROUP BY и HAVING. Группируем записи по статусу и оставляем статусы, встречающиеся более 100 раз.
-sql
-
-SELECT status, COUNT(*) AS enrollments_count FROM enrollments GROUP BY status HAVING COUNT(*) > 100 ORDER BY enrollments_count DESC;
-
-Результат:
-
-https://../images/step04_having.png
-
-Вывод: в базе 1000 записей на курсы. HAVING отбирает группы после агрегирования; условие применяется к COUNT(*).
-Шаг 5. Объединение связанных таблиц
-
-Студенты и группы. Используем INNER JOIN, чтобы показать первых 10 студентов вместе с названиями групп.
-sql
-
-SELECT s.id, s.full_name, g.group_name FROM students AS s INNER JOIN groups AS g ON s.group_id = g.id ORDER BY s.id LIMIT 10;
-
-Результат:
-
-https://../images/step05_students_groups.png
-
-Курсы и преподаватели. Используем INNER JOIN, чтобы показать первые 10 курсов и их преподавателей.
-sql
-
-SELECT c.course_name, t.full_name AS teacher_name FROM courses AS c INNER JOIN teachers AS t ON c.teacher_id = t.id ORDER BY c.id LIMIT 10;
-
-Результат:
-
-https://../images/step05_courses_teachers.png
-
-Все преподаватели и курсы. Используем LEFT JOIN, чтобы сохранить в результате всех преподавателей.
-sql
-
-SELECT t.full_name AS teacher_name, c.course_name FROM teachers AS t LEFT JOIN courses AS c ON t.id = c.teacher_id ORDER BY t.full_name;
-
-Результат:
-
-https://../images/step05_teachers_leftjoin.png
-
-Вывод: INNER JOIN выводит совпавшие записи, а LEFT JOIN сохраняет строки из левой таблицы даже при отсутствии соответствий.
-Шаг 6. Проверка корректности данных
-
-Проверка оценок. Проверяем, нет ли оценок меньше 0, больше 100 или отсутствующих.
-sql
-
-SELECT COUNT(*) AS invalid_scores FROM results WHERE score < 0 OR score > 100 OR score IS NULL;
-
-Результат:
-
-https://../images/step06_invalid.png
-
-Проверка связей. Проверяем, нет ли оценок, ссылающихся на несуществующую запись на курс.
-sql
-
-SELECT COUNT(*) AS orphan_results FROM results AS r LEFT JOIN enrollments AS e ON r.enrollment_id = e.id WHERE e.id IS NULL;
-
-Результат:
-
-https://../images/step06_orphans.png
-
-Вывод: оба запроса вернули 0. В рамках проведённых проверок нарушений не обнаружено. Это не означает, что проверены абсолютно все возможные ошибки в данных.
-Шаг 7. Индивидуальное аналитическое исследование
-
-Вариант: 2.
-
-Исследовательский вопрос: какие учебные группы показывают лучшие средние результаты обучения, с учётом числа оценок?
-
-Используемые таблицы: groups, students, enrollments, results.
-
-Метод исследования: с помощью INNER JOIN, GROUP BY, COUNT и AVG определяем количество выставленных оценок и средний балл отдельно по учебным группам. Дополнительно рассчитываем общий средний балл по всей базе для сравнения.
-
-Для ответа на исследовательский вопрос выполняются два основных SQL-запроса:
-
-Аналитика по группам. Группируем данные по учебным группам.
-sql
-
-SELECT g.group_name, COUNT(r.score) AS grades_count, ROUND(AVG(r.score), 2) AS avg_score FROM groups AS g JOIN students AS s ON g.id = s.group_id JOIN enrollments AS e ON s.id = e.student_id JOIN results AS r ON e.id = r.enrollment_id WHERE r.score IS NOT NULL GROUP BY g.id, g.group_name ORDER BY avg_score DESC, grades_count DESC;
-
-Результат:
-
-https://../images/step07_groups_avg.png
-
-Общий средний балл по базе. Сравнительный показатель.
-sql
-
-SELECT ROUND(AVG(score), 2) AS overall_avg_score FROM results WHERE score IS NOT NULL;
-
-Результат:
-
-https://../images/step07_overall_avg.png
-
-Аналитические выводы:
-
-    Наивысший средний балл показывает группа ИВТ-09 — 80.09 (учтено 75 оценок). Это превышает общий средний балл по базе (77.58) на 2.51 пункта.
-
-    При сравнении важно учитывать столбец grades_count. Группа ИВТ-02 занимает второе место (79.87), но имеет меньшее количество оценок (61). Напротив, группа ИВТ-07 имеет максимальное число оценок (80), но её средний балл (76.95) ниже общего. Большой объем выборки сглаживает случайные отклонения.
-
-    Наименьший средний результат демонстрирует группа ИВТ-12 (75.26). Разрыв между лучшей (ИВТ-09) и худшей (ИВТ-12) группой составляет 4.83 балла. Разброс средних баллов невелик, что указывает на относительно однородный уровень подготовки.
-
-Итог
-
-В работе изучена структура SQLite-базы из шести связанных таблиц, выполнены запросы с WHERE, ORDER BY, LIMIT, агрегатными функциями, GROUP BY, HAVING, INNER JOIN, LEFT JOIN; проведены проверки целостности и отдельное аналитическое исследование (Вариант 2).
-
-Ограничения: анализ не учитывает сложность курсов, которые выбирали студенты разных групп. Кроме того, в расчет берутся только завершенные курсы с оценками; студенты, которые записались, но бросили курс, не влияют на средний балл группы, что может скрывать реальный процент отсева. Выводы относятся только к данному учебному набору данных.
-Структура файлов на GitHub
-text
-
-lab4/
-├── README.md
-├── report/
-│   └── analysis.md
-└── images/
-    ├── step01_counts.png
-    ├── step02_students_data.png
-    ├── step02_students_schema.png
-    ├── step02_enrollments_fk.png
-    ├── step03_courses.png
-    ├── step03_students.png
-    ├── step04_count.png
-    ├── step04_aggregates.png
-    ├── step04_having.png
-    ├── step05_students_groups.png
-    ├── step05_courses_teachers.png
-    ├── step05_teachers_leftjoin.png
-    ├── step06_invalid.png
-    ├── step06_orphans.png
-    ├── step07_groups_avg.png
-    └── step07_overall_avg.png
+**Ограничения анализа:** Анализ учитывает только завершенные записи с выставленными оценками (`score IS NOT NULL`). Студенты, которые отчислились или еще проходят обучение (статусы active/cancelled), не учитываются. Кроме того, разные курсы могут иметь разную сложность и строгость оценивания, что не отражено в данном запросе и может влиять на средний балл группы.
